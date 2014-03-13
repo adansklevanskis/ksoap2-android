@@ -269,37 +269,37 @@ public class HttpTransportSE extends Transport {
     }
 
     private InputStream readDebug(InputStream is, int contentLength, File outputFile) throws IOException {
-        OutputStream bos;
-        if (outputFile != null) {
-            bos = new FileOutputStream(outputFile);
-        } else {
-            // If known use the size if not use default value
-            bos = new ByteArrayOutputStream( (contentLength > 0 ) ? contentLength : 256*1024);
-        }
-
-        byte[] buf = new byte[256];
-
-        while (true) {
-            int rd = is.read(buf, 0, 256);
-            if (rd == -1) {
-                break;
-            }
-            bos.write(buf, 0, rd);
-        }
-
-        bos.flush();
-        if (bos instanceof ByteArrayOutputStream) {
-            buf = ((ByteArrayOutputStream) bos).toByteArray();
-        }
-        bos = null;
-        responseDump = new String(buf);
-        is.close();
-        
-        if (outputFile != null) {
-            return new FileInputStream(outputFile);
-        } else {
-            return new ByteArrayInputStream(buf);
-        }
+         OutputStream bos;
+	        //if is instanceof GzipStream, we cannot use mark - is.markSupported() == false
+	        is = new BufferedInputStream(is);
+	        if (outputFile != null) {
+	            bos = new FileOutputStream(outputFile);
+	        } else {
+	            // If known use the size if not use default value
+	            bos = new ByteArrayOutputStream( (contentLength > 0 ) ? contentLength : 256*1024);
+	        }
+	        
+	        byte[] buf = new byte[256];
+	        is.mark(1);
+	        while (true) {
+	        	
+	            int rd = is.read(buf, 0, 256);
+	            if (rd == -1) {
+	                break;
+	            }
+	            bos.write(buf, 0, rd);
+	        }
+	        
+	        bos.flush();
+	        
+	        responseDump = bos.toString();
+	        
+	        if (outputFile != null) {
+	            return new FileInputStream(outputFile);
+	        } else {
+	        	if( is.markSupported()) is.reset();
+	        	return is;
+	        }
     }
 
     private InputStream getUnZippedInputStream(InputStream inputStream) throws IOException {
