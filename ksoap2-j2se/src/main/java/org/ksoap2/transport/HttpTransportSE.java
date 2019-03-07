@@ -26,12 +26,12 @@ package org.ksoap2.transport;
 
 import org.ksoap2.HeaderProperty;
 import org.ksoap2.SoapEnvelope;
-import org.ksoap2.serialization.SoapSerializationEnvelope;
+import org.ksoap2.serialization.*;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.*;
 import java.net.Proxy;
-import java.util.List;
+import java.util.*;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -103,16 +103,18 @@ public class HttpTransportSE extends Transport {
      *            the desired soapAction
      * @param envelope
      *            the envelope containing the information for the soap call.
+     * @throws HttpResponseException
      * @throws IOException
      * @throws XmlPullParserException
      */
-    public void call(String soapAction, SoapEnvelope envelope) throws IOException, XmlPullParserException {
+    public void call(String soapAction, SoapEnvelope envelope)
+            throws HttpResponseException, IOException, XmlPullParserException {
             
         call(soapAction, envelope, null);
     }
 
     public List call(String soapAction, SoapEnvelope envelope, List headers)
-            throws IOException, XmlPullParserException {
+            throws HttpResponseException, IOException, XmlPullParserException {
         return call(soapAction, envelope, headers, null);
     }
 
@@ -133,9 +135,12 @@ public class HttpTransportSE extends Transport {
      *
      * @return Headers returned by the web service as a <code>List</code> of
      * <code>HeaderProperty</code> instances.
+     *
+     * @throws HttpResponseException
+     *              an IOException when Http response code is different from 200
      */
     public List call(String soapAction, SoapEnvelope envelope, List headers, File outputFile)
-        throws IOException, XmlPullParserException {
+        throws HttpResponseException, IOException, XmlPullParserException {
 
         if (soapAction == null) {
             soapAction = "\"\"";
@@ -162,10 +167,10 @@ public class HttpTransportSE extends Transport {
             connection.setRequestProperty("Content-Type", CONTENT_TYPE_XML_CHARSET_UTF_8);
         }
 
-        connection.setRequestProperty("Connection", "close");
+        // this seems to cause issues so we are removing it
+        //connection.setRequestProperty("Connection", "close");
         connection.setRequestProperty("Accept-Encoding", "gzip");
-        connection.setRequestProperty("Content-Length", "" + requestData.length);
-        connection.setFixedLengthStreamingMode(requestData.length);
+
 
         // Pass the headers provided by the user along with the call
         if (headers != null) {
@@ -176,13 +181,9 @@ public class HttpTransportSE extends Transport {
         }
 
         connection.setRequestMethod("POST");
-        OutputStream os = connection.openOutputStream();
-
-        os.write(requestData, 0, requestData.length);
-        os.flush();
-        os.close();
+        sendData(requestData, connection,envelope);
         requestData = null;
-        InputStream is;
+        InputStream is = null;
         List retHeaders = null;
         byte[] buf = null; // To allow releasing the resource after used
         int contentLength = 8192; // To determine the size of the response and adjust buffer size
@@ -192,6 +193,7 @@ public class HttpTransportSE extends Transport {
 
         try {
             retHeaders = connection.getResponseProperties();
+
             for (int i = 0; i < retHeaders.size(); i++) {
                 HeaderProperty hp = (HeaderProperty)retHeaders.get(i);
                 // HTTP response code has null key
@@ -210,12 +212,14 @@ public class HttpTransportSE extends Transport {
                     }
                 }
 
+
                 // Check the content-type header to see if we're getting back XML, in case of a
                 // SOAP fault on 500 codes
                 if (hp.getKey().equalsIgnoreCase("Content-Type")
                         && hp.getValue().contains("xml")) {
                     xmlContent = true;
                 }
+
 
                 // ignoring case since users found that all smaller case is used on some server
                 // and even if it is wrong according to spec, we rather have it work..
@@ -226,33 +230,40 @@ public class HttpTransportSE extends Transport {
             }
 
             //first check the response code....
-            if (status != 200) {
-                throw new IOException("HTTP request failed, HTTP status: " + status);
+            if (status != 200 && status != 202) {
+                //202 is a correct status returned by WCF OneWay operation
+                throw new HttpResponseException("HTTP request failed, HTTP status: " + status, status,retHeaders);
             }
 
-            if (gZippedContent) {
-                is = getUnZippedInputStream(
-                        new BufferedInputStream(connection.openInputStream(),contentLength));
-            } else {
-                is = new BufferedInputStream(connection.openInputStream(),contentLength);
+            if (contentLength > 0) {
+                if (gZippedContent) {
+                    is = getUnZippedInputStream(
+                            new BufferedInputStream(connection.openInputStream(),contentLength));
+                } else {
+                    is = new BufferedInputStream(connection.openInputStream(),contentLength);
+                }
             }
         } catch (IOException e) {
-            if(gZippedContent) {
-                is = getUnZippedInputStream(
-                        new BufferedInputStream(connection.getErrorStream(),contentLength));
-            } else {
-                is = new BufferedInputStream(connection.getErrorStream(),contentLength);
+            if (contentLength > 0) {
+                if(gZippedContent) {
+                    is = getUnZippedInputStream(
+                            new BufferedInputStream(connection.getErrorStream(),contentLength));
+                } else {
+                    is = new BufferedInputStream(connection.getErrorStream(),contentLength);
+                }
             }
 
-            if (status != 200 && !xmlContent) {
-                if (debug && is != null) {
-                    //go ahead and read the error stream into the debug buffers/file if needed.
-                    readDebug(is, contentLength, outputFile);
-                }
+            if ( e instanceof HttpResponseException) {
+                if (!xmlContent) {
+                    if (debug && is != null) {
+                        //go ahead and read the error stream into the debug buffers/file if needed.
+                        readDebug(is, contentLength, outputFile);
+                    }
 
-                //we never want to drop through to attempting to parse the HTTP error stream as a SOAP response.
-                connection.disconnect();
-                throw e;
+                    //we never want to drop through to attempting to parse the HTTP error stream as a SOAP response.
+                    connection.disconnect();
+                    throw e;
+                }
             }
         }
 
@@ -260,13 +271,39 @@ public class HttpTransportSE extends Transport {
             is = readDebug(is, contentLength, outputFile);
         }
 
-        parseResponse(envelope, is);
+        if(is!=null)
+        {
+            parseResponse(envelope, is,retHeaders);
+        }
+
         // release all resources 
         // input stream is will be released inside parseResponse
-        os = null;
+        is = null;
         buf = null;
+        //This fixes Issue 173 read my explanation here: https://code.google.com/p/ksoap2-android/issues/detail?id=173
+        connection.disconnect();
+        connection = null;
         return retHeaders;
     }
+
+    protected void sendData(byte[] requestData, ServiceConnection connection, SoapEnvelope envelope)
+            throws IOException
+    {
+        connection.setRequestProperty("Content-Length", "" + requestData.length);
+        connection.setFixedLengthStreamingMode(requestData.length);
+
+        OutputStream os = connection.openOutputStream();
+        os.write(requestData, 0, requestData.length);
+        os.flush();
+        os.close();
+    }
+
+    protected void parseResponse(SoapEnvelope envelope, InputStream is,List returnedHeaders)
+            throws XmlPullParserException, IOException
+    {
+        parseResponse(envelope, is);
+    }
+
 
     private InputStream readDebug(InputStream is, int contentLength, File outputFile) throws IOException {
          OutputStream bos;
@@ -314,6 +351,6 @@ public class HttpTransportSE extends Transport {
     }
 
     public ServiceConnection getServiceConnection() throws IOException {
-        return new ServiceConnectionSE(proxy, url, timeout);
+        return new ServiceConnectionSE(proxy, url, timeout, readTimeout);
     }
 }

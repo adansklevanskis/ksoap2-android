@@ -1,22 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
     <groupId>com.google.code.ksoap2-android</groupId>
     <artifactId>ksoap2-parent</artifactId>
-    <version>3.0.1-SNAPSHOT</version>
+    <version>3.6.4-SNAPSHOT</version>
   </parent>
 
   <artifactId>ksoap2-extra-ntlm</artifactId>
-  <name>ksoap2-extra-ntlm</name>
   <packaging>jar</packaging>
-  <description>NTLM support</description>
 
+  <name>ksoap2-extra-ntlm</name>
+  <description>NTLM support</description>
 
   <dependencies>
     <dependency>
       <groupId>com.google.code.ksoap2-android</groupId>
       <artifactId>ksoap2-base</artifactId>
+      <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
@@ -46,5 +48,4 @@
       </plugin>
     </plugins>
   </build>
-
 </project>

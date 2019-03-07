@@ -387,7 +387,9 @@ public class ServiceConnectionFixture implements ServiceConnection {
     }
 
     public void disconnect() throws IOException {
-        throw new RuntimeException("ServiceConnectionFixture.disconnect is not implemented yet");
+        //Set connected to false it breaks testing because the assert header/serialization/deserialization doesn't work
+        //But I can't leave the not implemented exception here, so there is nothing
+        //connected = false;
     }
 
     public List getResponseProperties() {
@@ -407,6 +409,10 @@ public class ServiceConnectionFixture implements ServiceConnection {
 
     public void setFixedLengthStreamingMode(int contentLength) {
         
+    }
+
+    public void setChunkedStreamingMode() {
+
     }
 
     public OutputStream openOutputStream() throws IOException {
